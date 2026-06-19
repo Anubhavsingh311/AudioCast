@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudioCast — PDF Audiobook Reader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <style>
+  /* ── Tokens ────────────────────────────────────────────────────────────── */
+  :root {
+    --bg:          #0c0c17;
+    --surface:     #13131f;
+    --surface-2:   #1a1a28;
+    --border:      #26263a;
+    --accent:      #7c3aed;
+    --accent-dim:  rgba(124,58,237,.22);
+    --accent-glow: rgba(124,58,237,.12);
+    --accent-lt:   #a78bfa;
+    --text:        #eaeaf4;
+    --muted:       #7a7a9a;
+    --green:       #10b981;
+    --red:         #ef4444;
+    --r-sm: 8px; --r-md: 14px; --r-lg: 20px;
+  }
+
+  /* ── Reset ─────────────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .shell {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 3rem 1.25rem 5rem;
+  }
+
+  /* ── Header ────────────────────────────────────────────────────────────── */
+  .header { text-align: center; margin-bottom: 2.75rem; }
+  .logo { display: inline-flex; align-items: center; gap: .55rem; margin-bottom: .6rem; }
+  .logo-icon {
+    font-size: 1.9rem; color: var(--accent); display: inline-block;
+    animation: orbit 9s linear infinite;
+  }
+  @keyframes orbit { to { transform: rotate(360deg); } }
+  .logo-wordmark {
+    font-family: 'Space Mono', monospace;
+    font-size: 1.85rem; font-weight: 700; letter-spacing: -.04em;
+  }
+  .tagline { color: var(--muted); font-size: .9rem; }
+
+  /* ── Drop zone ─────────────────────────────────────────────────────────── */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    padding: 3.25rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .18s, background .18s, box-shadow .18s;
+    margin-bottom: 1.25rem;
+    outline: none;
+    user-select: none;
+  }
+  .drop-zone:focus-visible,
+  .drop-zone:hover,
+  .drop-zone.over {
+    border-color: var(--accent);
+    background: var(--surface-2);
+    box-shadow: 0 0 0 4px var(--accent-glow), inset 0 0 40px var(--accent-glow);
+  }
+  .drop-zone.over .dz-icon { transform: translateY(-8px) scale(1.08); color: var(--accent-lt); }
+  .dz-body { display: flex; flex-direction: column; align-items: center; gap: .4rem; pointer-events: none; }
+  .dz-body label { pointer-events: all; }
+  .dz-icon {
+    width: 52px; height: 52px; color: var(--muted); margin-bottom: .6rem;
+    transition: transform .22s cubic-bezier(.34,1.56,.64,1), color .18s;
+  }
+  .dz-icon svg { width: 100%; height: 100%; }
+  .dz-title { font-size: 1.1rem; font-weight: 600; }
+  .dz-sub   { color: var(--muted); font-size: .82rem; margin: .1rem 0; }
+  .browse-btn {
+    display: inline-block; background: var(--accent); color: #fff;
+    padding: .5rem 1.4rem; border-radius: var(--r-sm);
+    font-family: inherit; font-size: .88rem; font-weight: 600;
+    cursor: pointer; transition: background .15s, transform .12s; margin: .25rem 0;
+  }
+  .browse-btn:hover  { background: var(--accent-lt); transform: translateY(-1px); }
+  .browse-btn:active { transform: translateY(0); }
+  .dz-note { font-size: .75rem; color: var(--muted); }
+
+  /* ── Error banner ──────────────────────────────────────────────────────── */
+  .err-banner {
+    background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35);
+    border-radius: var(--r-sm); color: #fca5a5;
+    padding: .7rem 1rem; font-size: .85rem; margin-bottom: 1rem;
+    animation: fadein .2s ease;
+  }
+  .err-banner[hidden] { display: none; }
+  @keyframes fadein { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+
+  /* ── Book list ─────────────────────────────────────────────────────────── */
+  .book-list { list-style: none; display: flex; flex-direction: column; gap: .7rem; }
+
+  /* ── Book card ─────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 1rem 1.15rem;
+    transition: border-color .25s; animation: cardin .25s cubic-bezier(.16,1,.3,1);
+  }
+  @keyframes cardin { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+  .card--loading             { border-color: var(--border); }
+  .card--ready, .card--done  { border-color: rgba(16,185,129,.35); }
+  .card--playing             { border-color: var(--accent); }
+  .card--paused              { border-color: rgba(124,58,237,.4); }
+  .card--error               { border-color: rgba(239,68,68,.35); }
+
+  .c-row  { display: flex; align-items: center; gap: .75rem; }
+  .c-name {
+    flex: 1; font-weight: 600; font-size: .91rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .badge {
+    font-family: 'Space Mono', monospace; font-size: .7rem;
+    padding: .18rem .55rem; border-radius: 20px; white-space: nowrap; flex-shrink: 0;
+  }
+  .b-loading { background: var(--surface-2); color: var(--muted); }
+  .b-ready   { background: rgba(16,185,129,.15); color: var(--green); }
+  .b-playing { background: var(--accent-dim); color: var(--accent-lt); }
+  .b-paused  { background: rgba(124,58,237,.12); color: var(--accent-lt); }
+  .b-done    { background: rgba(16,185,129,.15); color: var(--green); }
+  .b-error   { background: rgba(239,68,68,.12); color: #fca5a5; }
+
+  .c-stats   { font-size: .77rem; color: var(--muted); margin: .3rem 0 .15rem; }
+  .c-current {
+    font-size: .78rem; color: var(--muted); font-style: italic;
+    margin: .2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .c-counter { font-size: .72rem; color: var(--muted); font-family: 'Space Mono', monospace; margin-bottom: .5rem; }
+
+  .c-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin: .55rem 0 .3rem; }
+  .c-bar-fill {
+    height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-lt));
+    border-radius: 2px; transition: width .35s linear;
+  }
+  .c-bar-fill.shimmer {
+    width: 55%;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-lt) 50%, var(--accent) 100%);
+    background-size: 200% 100%; animation: shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* ── Controls ──────────────────────────────────────────────────────────── */
+  .controls { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; margin-top: .65rem; }
+  select.v-sel {
+    flex: 1; min-width: 0; max-width: 200px;
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--r-sm);
+    padding: .33rem .6rem; font-family: inherit; font-size: .79rem;
+    cursor: pointer; outline: none;
+  }
+  select.v-sel:focus { border-color: var(--accent); }
+  .rate-wrap { display: flex; align-items: center; gap: .35rem; flex-shrink: 0; }
+  input[type="range"].r-slider { width: 78px; accent-color: var(--accent); cursor: pointer; }
+  .r-lbl {
+    font-family: 'Space Mono', monospace; font-size: .75rem;
+    color: var(--muted); min-width: 2.5rem; text-align: right;
+  }
+
+  /* ── Buttons ───────────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: .3rem;
+    padding: .36rem .85rem; border-radius: var(--r-sm);
+    font-family: inherit; font-size: .81rem; font-weight: 600;
+    cursor: pointer; border: none; white-space: nowrap;
+    transition: background .14s, transform .1s;
+  }
+  .btn:active { transform: scale(.96); }
+  .btn-play  { background: var(--accent); color: #fff; }
+  .btn-play:hover  { background: var(--accent-lt); }
+  .btn-pause { background: var(--surface-2); color: var(--accent-lt); border: 1px solid var(--accent-dim); }
+  .btn-pause:hover { background: var(--accent-dim); }
+  .btn-stop  { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+  .btn-stop:hover  { color: var(--text); }
+  .btn-txt   { background: transparent; color: var(--muted); border: 1px solid var(--border); font-size: .76rem; }
+  .btn-txt:hover   { color: var(--text); border-color: var(--muted); }
+
+  /* ── Footer ────────────────────────────────────────────────────────────── */
+  .footer {
+    margin-top: 3.5rem; text-align: center;
+    font-size: .77rem; color: var(--muted); line-height: 1.9;
+  }
+  .tips {
+    display: inline-block;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: .75rem 1.25rem;
+    margin-top: .75rem; text-align: left; line-height: 1.9;
+  }
+  .tips span { display: block; }
+  kbd {
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: .05rem .35rem; border-radius: 4px;
+    font-family: 'Space Mono', monospace; font-size: .85em;
+  }
+
+  /* ── Responsive ────────────────────────────────────────────────────────── */
+  @media (max-width: 480px) {
+    .shell { padding: 2rem 1rem 4rem; }
+    .drop-zone { padding: 2.25rem 1rem; }
+    .controls { gap: .4rem; }
+    select.v-sel { max-width: none; }
+  }
+  </style>
+</head>
+
+<body>
+<div class="shell">
+
+  <header class="header">
+    <div class="logo">
+      <span class="logo-icon" aria-hidden="true">◉</span>
+      <span class="logo-wordmark">AudioCast</span>
+    </div>
+    <p class="tagline">Drop a PDF. Listen to it like an audiobook.</p>
+  </header>
+
+  <div class="drop-zone" id="dz" role="button" tabindex="0"
+       aria-label="Drop PDF files here or click to browse">
+    <div class="dz-body">
+      <div class="dz-icon" aria-hidden="true">
+        <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M28 6v32" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+          <path d="M16 26l12 12 12-12" stroke="currentColor" stroke-width="3.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 42v4a4 4 0 004 4h28a4 4 0 004-4v-4"
+                stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="dz-title">Drop your PDFs here</p>
+      <p class="dz-sub">or</p>
+      <label class="browse-btn" id="browseLabel">
+        Browse files
+        <input type="file" id="fileIn" multiple accept=".pdf" hidden>
+      </label>
+      <p class="dz-note">PDF files only · You can drop multiple at once</p>
+    </div>
+  </div>
+
+  <div class="err-banner" id="errBanner" role="alert" hidden></div>
+
+  <ul class="book-list" id="bookList" aria-live="polite"></ul>
+
+  <footer class="footer">
+    <p>Runs entirely in your browser — nothing is uploaded anywhere.</p>
+    <div class="tips">
+      <span>⌨️ Press <kbd>Space</kbd> to pause or resume the active book.</span>
+      <span>🎙️ Best voices: use <strong style="color:var(--text)">Chrome</strong> on Windows or macOS.</span>
+      <span>📄 Scanned PDFs won't work — they need embedded text to extract.</span>
+      <span>💾 Use <strong style="color:var(--text)">↓ TXT</strong> to save the extracted text to your device.</span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+'use strict';
+
+// ── PDF.js setup ─────────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const BOOKS  = new Map();
+let   ACTIVE = null;
+let   VOICES = [];
+let   errTimer = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function uid() {
+  return (crypto.randomUUID?.()) ??
+    (Math.random().toString(36).slice(2) + Date.now().toString(36));
+}
+
+function fmtRate(r) {
+  return r % 1 === 0 ? `${r}×` : `${parseFloat(r).toFixed(2).replace(/0+$/,'')}×`;
+}
+
+function fmtDuration(secs) {
+  if (secs < 60) return '<1 min';
+  const m = Math.round(secs / 60);
+  if (m < 60) return `~${m} min`;
+  return `~${Math.floor(m/60)}h ${m%60}m`;
+}
+
+function wordCount(text) {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+// ── Voice management ──────────────────────────────────────────────────────────
+function loadVoices() {
+  const all = speechSynthesis.getVoices();
+  VOICES = all.filter(v => v.lang.startsWith('en'));
+  if (!VOICES.length) VOICES = all;
+  BOOKS.forEach((book, id) => {
+    const sel = $(`vs-${id}`);
+    if (sel) populateVoices(sel, book.voiceIdx);
+  });
+}
+
+if ('speechSynthesis' in window) {
+  loadVoices();
+  speechSynthesis.addEventListener('voiceschanged', loadVoices);
+}
+
+function populateVoices(sel, selectedIdx) {
+  sel.innerHTML = VOICES.map((v, i) => {
+    const label = v.name
+      .replace(/Microsoft\s+/i,'')
+      .replace(/\s*Online\s*/i,'')
+      .replace(/\s*\([^)]*\)/g,'')
+      .trim();
+    return `<option value="${i}"${i===selectedIdx?' selected':''}>${esc(label)}</option>`;
+  }).join('');
+}
+
+// Chrome stops TTS silently after ~15s in background — this keeps it alive
+setInterval(() => {
+  if (ACTIVE && speechSynthesis.speaking && !speechSynthesis.paused) {
+    speechSynthesis.pause();
+    speechSynthesis.resume();
+  }
+}, 12000);
+
+// ── PDF text extraction ───────────────────────────────────────────────────────
+async function extractPdfText(file) {
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pages = [];
+
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const content = await (await pdf.getPage(p)).getTextContent();
+    let lastY = null, line = '';
+    for (const item of content.items) {
+      const y = item.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 5) line += ' ';
+      line += item.str;
+      lastY = y;
+    }
+    pages.push(line);
+  }
+
+  let text = pages.join('\n\n');
+  text = text.replace(/(\w)-\s+(\w)/g, '$1$2');  // dehyphenate
+  text = text.replace(/^\s*\d+\s*$/gm, '');       // page numbers
+  text = text.replace(/[ \t]+/g, ' ');             // collapse spaces
+  text = text.replace(/\n{3,}/g, '\n\n');          // collapse blank lines
+  return text.trim();
+}
+
+// ── Sentence splitting ────────────────────────────────────────────────────────
+function splitSentences(text) {
+  const raw = text.match(/[^.!?…]+[.!?…]+(?:\s|$)|[^.!?…]+$/g) || [text];
+  const out = [];
+  for (const s of raw) {
+    const t = s.trim();
+    if (!t) continue;
+    if (t.split(/\s+/).length < 4 && out.length) out[out.length-1] += ' ' + t;
+    else out.push(t);
+  }
+  return out.filter(Boolean);
+}
+
+// ── TTS engine ────────────────────────────────────────────────────────────────
+function activeVoice(book) {
+  return VOICES[book.voiceIdx % VOICES.length] ?? null;
+}
+
+function speakFrom(id, idx) {
+  const book = BOOKS.get(id);
+  if (!book || book.status !== 'playing') return;
+
+  if (idx >= book.sentences.length) {
+    book.status = 'done';
+    ACTIVE = null;
+    renderCard(id);
+    return;
+  }
+
+  book.currentSentence = idx;
+  updateProgress(id);
+
+  const utt = new SpeechSynthesisUtterance(book.sentences[idx]);
+  const v = activeVoice(book);
+  if (v) utt.voice = v;
+  utt.rate  = book.rate;
+  utt.pitch = 1.0;
+
+  utt.onend = () => {
+    if (book.status === 'playing' && ACTIVE === id) speakFrom(id, idx + 1);
+  };
+  utt.onerror = (e) => {
+    if (!['interrupted','canceled'].includes(e.error)) {
+      book.status = 'error';
+      book.errorMsg = `Speech error: ${e.error}`;
+      ACTIVE = null;
+      renderCard(id);
+    }
+  };
+
+  speechSynthesis.speak(utt);
+}
+
+function playBook(id) {
+  if (ACTIVE && ACTIVE !== id) stopBook(ACTIVE, false);
+  speechSynthesis.cancel();
+  const book = BOOKS.get(id);
+  if (!book) return;
+  book.status = 'playing';
+  ACTIVE = id;
+  renderCard(id);
+  speakFrom(id, book.currentSentence);
+}
+
+function pauseBook(id) {
+  // cancel is more reliable than pause() in Chrome
+  speechSynthesis.cancel();
+  const book = BOOKS.get(id);
+  if (book) { book.status = 'paused'; renderCard(id); }
+}
+
+function stopBook(id, resetPos = true) {
+  speechSynthesis.cancel();
+  const book = BOOKS.get(id);
+  if (!book) return;
+  book.status = 'ready';
+  if (resetPos) book.currentSentence = 0;
+  if (ACTIVE === id) ACTIVE = null;
+  renderCard(id);
+}
+
+function changeRate(id, val) {
+  const book = BOOKS.get(id);
+  if (!book) return;
+  book.rate = parseFloat(val);
+  const lbl = $(`rl-${id}`);
+  if (lbl) lbl.textContent = fmtRate(book.rate);
+  if (book.status === 'playing') { speechSynthesis.cancel(); speakFrom(id, book.currentSentence); }
+}
+
+function changeVoice(id, idx) {
+  const book = BOOKS.get(id);
+  if (!book) return;
+  book.voiceIdx = parseInt(idx, 10);
+  if (book.status === 'playing') { speechSynthesis.cancel(); speakFrom(id, book.currentSentence); }
+}
+
+function downloadTxt(id) {
+  const book = BOOKS.get(id);
+  if (!book) return;
+  const a = Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([book.text], {type:'text/plain;charset=utf-8'})),
+    download: book.filename.replace(/\.pdf$/i, '.txt'),
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── Progress update (in-place, avoids full re-render) ─────────────────────────
+function updateProgress(id) {
+  const book = BOOKS.get(id);
+  const fill = $(`bf-${id}`);
+  if (!book || !fill) return;
+
+  const pct = book.sentences.length
+    ? (book.currentSentence / book.sentences.length) * 100 : 0;
+  fill.style.width = `${pct.toFixed(1)}%`;
+
+  const ctr = $(`ct-${id}`);
+  if (ctr) ctr.textContent =
+    `${(book.currentSentence+1).toLocaleString()} / ${book.sentences.length.toLocaleString()} sentences`;
+
+  const cur = $(`cs-${id}`);
+  if (cur) {
+    const s = book.sentences[book.currentSentence] || '';
+    cur.textContent = s.length > 110 ? `"${s.slice(0,110)}…"` : `"${s}"`;
+  }
+}
+
+// ── Card renderer ─────────────────────────────────────────────────────────────
+function renderCard(id) {
+  const book = BOOKS.get(id);
+  const el   = $(`bk-${id}`);
+  if (!book || !el) return;
+
+  el.className = `card card--${book.status}`;
+
+  const pct = book.sentences.length
+    ? (book.currentSentence / book.sentences.length) * 100 : 0;
+  const est = fmtDuration((book.wordCount / (150 * book.rate)) * 60);
+  const rl  = fmtRate(book.rate);
+
+  const BADGES = {
+    loading: ['b-loading','Extracting…'],
+    ready:   ['b-ready',  'Ready'],
+    playing: ['b-playing','♫ Playing'],
+    paused:  ['b-paused', '⏸ Paused'],
+    done:    ['b-done',   '✓ Done'],
+    error:   ['b-error',  'Error'],
+  };
+  const [bCls, bTxt] = BADGES[book.status] ?? ['b-loading','…'];
+
+  const nameRow = `
+    <div class="c-row">
+      <span class="c-name" title="${esc(book.filename)}">${esc(book.filename)}</span>
+      <span class="badge ${bCls}">${bTxt}</span>
+    </div>`;
+
+  const voiceOpts = VOICES.map((v,i) => {
+    const label = v.name
+      .replace(/Microsoft\s+/i,'').replace(/\s*Online\s*/i,'')
+      .replace(/\s*\([^)]*\)/g,'').trim();
+    return `<option value="${i}"${i===book.voiceIdx?' selected':''}>${esc(label)}</option>`;
+  }).join('');
+
+  const rateWrap = `
+    <div class="rate-wrap">
+      <input type="range" class="r-slider" id="rs-${id}"
+        min=".5" max="2" step=".25" value="${book.rate}"
+        oninput="changeRate('${id}',this.value)">
+      <span class="r-lbl" id="rl-${id}">${rl}</span>
+    </div>`;
+
+  let body = '';
+
+  if (book.status === 'loading') {
+    body = `${nameRow}
+      <div class="c-bar"><div class="c-bar-fill shimmer"></div></div>`;
+
+  } else if (book.status === 'error') {
+    body = `${nameRow}
+      <p style="font-size:.8rem;color:#fca5a5;margin-top:.45rem">${esc(book.errorMsg)}</p>`;
+
+  } else if (book.status === 'ready' || book.status === 'done') {
+    body = `${nameRow}
+      <div class="c-stats">${book.wordCount.toLocaleString()} words · ${est} at ${rl}</div>
+      <div class="c-bar" style="margin:.5rem 0 0">
+        <div class="c-bar-fill" id="bf-${id}" style="width:${pct.toFixed(1)}%"></div>
+      </div>
+      <div class="controls">
+        <select class="v-sel" id="vs-${id}" onchange="changeVoice('${id}',this.value)">
+          ${voiceOpts}
+        </select>
+        ${rateWrap}
+        <button class="btn btn-play" onclick="playBook('${id}')">▶ Play</button>
+        <button class="btn btn-txt"  onclick="downloadTxt('${id}')">↓ TXT</button>
+      </div>`;
+
+  } else if (book.status === 'playing' || book.status === 'paused') {
+    const s = book.sentences[book.currentSentence] || '';
+    const preview = s.length > 110 ? `"${s.slice(0,110)}…"` : `"${s}"`;
+    const action  = book.status === 'playing'
+      ? `<button class="btn btn-pause" onclick="pauseBook('${id}')">⏸ Pause</button>`
+      : `<button class="btn btn-play"  onclick="playBook('${id}')">▶ Resume</button>`;
+
+    body = `${nameRow}
+      <p class="c-current" id="cs-${id}">${esc(preview)}</p>
+      <div class="c-bar">
+        <div class="c-bar-fill" id="bf-${id}" style="width:${pct.toFixed(1)}%"></div>
+      </div>
+      <div class="c-counter" id="ct-${id}">
+        ${(book.currentSentence+1).toLocaleString()} / ${book.sentences.length.toLocaleString()} sentences
+      </div>
+      <div class="controls">
+        ${rateWrap}
+        ${action}
+        <button class="btn btn-stop" onclick="stopBook('${id}')">⏹ Stop</button>
+      </div>`;
+  }
+
+  el.innerHTML = body;
+}
+
+// ── File pipeline ─────────────────────────────────────────────────────────────
+function processFile(file) {
+  const id   = uid();
+  const book = {
+    id, filename: file.name, text: '', sentences: [], wordCount: 0,
+    status: 'loading', currentSentence: 0, rate: 1.0, voiceIdx: 0, errorMsg: '',
+  };
+  BOOKS.set(id, book);
+
+  const li  = document.createElement('li');
+  li.id     = `bk-${id}`;
+  $('bookList').prepend(li);
+  renderCard(id);
+
+  extractPdfText(file)
+    .then(text => {
+      if (!text || text.length < 50)
+        throw new Error('No readable text found. This PDF may be scanned or image-only.');
+      book.text      = text;
+      book.sentences = splitSentences(text);
+      book.wordCount = wordCount(text);
+      book.status    = 'ready';
+      renderCard(id);
+    })
+    .catch(err => {
+      book.status   = 'error';
+      book.errorMsg = err.message || String(err);
+      renderCard(id);
+    });
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+const dz = $('dz');
+
+dz.addEventListener('dragenter', e => e.preventDefault());
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', e => { if (!dz.contains(e.relatedTarget)) dz.classList.remove('over'); });
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over'); handleFiles(e.dataTransfer.files);
+});
+
+$('browseLabel').addEventListener('click', e => e.stopPropagation());
+dz.addEventListener('click', e => { if (!e.target.closest('#browseLabel')) $('fileIn').click(); });
+dz.addEventListener('keydown', e => {
+  if (e.key==='Enter'||e.key===' ') { e.preventDefault(); $('fileIn').click(); }
+});
+$('fileIn').addEventListener('change', function() { handleFiles(this.files); this.value=''; });
+
+function handleFiles(files) {
+  const pdfs = Array.from(files).filter(f => f.type==='application/pdf' || /\.pdf$/i.test(f.name));
+  const bad  = Array.from(files).filter(f => !pdfs.includes(f));
+  if (bad.length) showError(`Only PDF files are supported. Skipped: ${bad.map(f=>f.name).join(', ')}`);
+  pdfs.forEach(processFile);
+}
+
+function showError(msg) {
+  const el = $('errBanner');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(errTimer);
+  errTimer = setTimeout(() => { el.hidden = true; }, 6000);
+}
+
+// ── Keyboard: Space = pause / resume ─────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (['INPUT','BUTTON','SELECT','TEXTAREA','LABEL'].includes(e.target.tagName)) return;
+  if (e.key===' ' && ACTIVE) {
+    e.preventDefault();
+    const b = BOOKS.get(ACTIVE);
+    if (b?.status==='playing') pauseBook(ACTIVE);
+    else if (b?.status==='paused') playBook(ACTIVE);
+  }
+});
+</script>
+</body>
+</html>
