@@ -23,7 +23,7 @@ No installs. No accounts. No uploads. Drop a PDF, pick a voice, hit play.
 
 | Tip | Details |
 |-----|---------|
-| 🏆 Best browser | Chrome on Windows or Safari on macOS has the most natural voices |
+| 🏆 Best browser | Brave on Windows or Safari on macOS has the most natural voices |
 | 📄 PDF type | Works on text-based PDFs only — scanned/image PDFs won't extract |
 | 🖥️ Keep tab visible | Chrome may slow down speech in background tabs on long reads |
 | ⌨️ Keyboard | Press `Space` anywhere on the page to pause or resume |
